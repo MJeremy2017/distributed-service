@@ -1,31 +1,25 @@
+package cluster.management;
+
 import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
 
-import java.io.IOException;
+import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.List;
 
 
 public class LeaderElection implements Watcher {
-    private static final String ZOOKEEPER_ADDRESS = "localhost:2181";
-    private static final int SESSION_TIMEOUT = 3000;
     private static final String ROOT_ELECTION_PATH = "/election";
     private String CurrentZnodeName;
-    private ZooKeeper zooKeeper;  // zookeeper client
+    private final ZooKeeper zooKeeper;  // zookeeper client
+    private ServiceRegistry serviceRegistry;
 
-    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
-        // main thread
-        LeaderElection le = new LeaderElection();
-        le.connectToZookeeperServer();
-        le.volunteerForLeadership();
-        le.electLeader();
-        // give the lock to the current thread and put the current thread to waiting status
-        le.waitConnect();
-        le.close();
-        System.out.println("Disconnected from ZooKeeper");
+    public LeaderElection(ZooKeeper zooKeeper, ServiceRegistry serviceRegistry) {
+        this.zooKeeper = zooKeeper;
+        this.serviceRegistry = serviceRegistry;
     }
 
-    private void electLeader() throws InterruptedException, KeeperException {
+    public void electLeader() throws InterruptedException, KeeperException, UnknownHostException {
         Stat previousNodeStat = null;
         System.out.println("Current node name is:" + CurrentZnodeName);
         while (previousNodeStat == null) {
@@ -34,6 +28,8 @@ public class LeaderElection implements Watcher {
             String smallestChild = childNames.get(0);
             if (CurrentZnodeName.equals(smallestChild)) {
                 System.out.println("This is the leader");
+                serviceRegistry.unregisterFromCluster();
+                serviceRegistry.registerForUpdates();
                 return;
             }
 
@@ -42,8 +38,12 @@ public class LeaderElection implements Watcher {
             int indexOfPreviousNode = childNames.indexOf(CurrentZnodeName) - 1;
             String previousZnodePath = ROOT_ELECTION_PATH + "/" + childNames.get(indexOfPreviousNode);
             System.out.println("Set watch on previous znode path: " + previousZnodePath);
+            // in case the previous node was deleted in the process
             previousNodeStat = zooKeeper.exists(previousZnodePath, this);
         }
+        // register worker node to cluster
+        serviceRegistry.registerToCluster();
+
     }
 
     public void volunteerForLeadership() throws InterruptedException, KeeperException {
@@ -52,7 +52,6 @@ public class LeaderElection implements Watcher {
         System.out.println("Created znode full path:" + znodePath);
         CurrentZnodeName = znodePath.replace(ROOT_ELECTION_PATH + "/", "");
     }
-
 
     public void waitConnect() throws InterruptedException {
         synchronized (zooKeeper) {
@@ -64,30 +63,26 @@ public class LeaderElection implements Watcher {
         this.zooKeeper.close();
     }
 
-    public void connectToZookeeperServer() throws IOException {
-        zooKeeper = new ZooKeeper(ZOOKEEPER_ADDRESS, SESSION_TIMEOUT, this);
-    }
-
     @Override
     public void process(WatchedEvent event) {
         // handled on separate zookeeper event thread
         switch (event.getType()) {
-            case None -> {
-                switch (event.getState()) {
-                    case SyncConnected -> System.out.println("Client connected to Zookeeper server");
-                    case Expired -> System.out.println("Connection expired");
-                    default -> {
-                        synchronized (zooKeeper) {
-                            System.out.println("Client disconnected to ZooKeeper event");
-                            zooKeeper.notifyAll();
-                        }
-                    }
-                }
-            }
+//            case None -> {
+//                switch (event.getState()) {
+//                    case SyncConnected -> System.out.println("Client connected to Zookeeper server");
+//                    case Expired -> System.out.println("Connection expired");
+//                    default -> {
+//                        synchronized (zooKeeper) {
+//                            System.out.println("Client disconnected to ZooKeeper event");
+//                            zooKeeper.notifyAll();
+//                        }
+//                    }
+//                }
+//            }
             case NodeDeleted -> {
                 try {
                     electLeader();
-                } catch (InterruptedException | KeeperException e) {
+                } catch (InterruptedException | KeeperException | UnknownHostException e) {
                     e.printStackTrace();
                 }
             }
