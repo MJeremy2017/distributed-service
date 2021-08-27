@@ -1,1 +1,1 @@
-# leader-election
+# zookeeper application
