@@ -10,7 +10,7 @@ import java.util.List;
 public class WatcherDemo implements Watcher {
     private static final String HOST = "localhost:2181";
     private static final int TIMEOUT = 3000;
-    private static final String WATCH_NODE = "/my_znode";
+    private static final String WATCH_NODE = "/some_znode";
     private static ZooKeeper zooKeeper;
 
     public static void main(String[] args) throws IOException, InterruptedException {
